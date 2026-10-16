@@ -352,10 +352,14 @@ def resolve_media_url(url: str) -> Dict[str, Any]:
             resolved_url = base_url
             keys_string = ""
 
-    # Extra headers for specific CDNs
-    if "webvideos.classplusapp." in resolved_url:
+    # Extra headers for ClassPlus & Akamai CDNs (mimics browser extension perfectly)
+    if any(k in resolved_url.lower() for k in ["classplusapp", "akamai", "media-cdn", "testbook"]):
         extra_headers['Referer'] = 'https://web.classplusapp.com/'
+        extra_headers['Origin'] = 'https://web.classplusapp.com'
         extra_headers['x-cdn-tag'] = 'empty'
+        extra_headers['Sec-Fetch-Site'] = 'same-site'
+        extra_headers['Sec-Fetch-Mode'] = 'cors'
+        extra_headers['Sec-Fetch-Dest'] = 'empty'
 
     return {
         "url": resolved_url,
@@ -424,15 +428,25 @@ def sync_download_worker(task_id: str):
         if status == "downloading":
             total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             downloaded = d.get("downloaded_bytes", 0)
-            if total_bytes > 0:
+            frag_index = d.get("fragment_index")
+            frag_count = d.get("fragment_count")
+
+            # Accurate progress for both single files and fragmented streams
+            if frag_count and frag_index:
+                task["progress"] = round((frag_index / frag_count) * 100, 1)
+                frag_str = f" • Frag {frag_index}/{frag_count}"
+            elif total_bytes > 0:
                 task["progress"] = round((downloaded / total_bytes) * 100, 1)
+                frag_str = ""
             else:
                 task["progress"] = 0.0
+                frag_str = ""
 
             speed = d.get("speed")
-            task["speed_str"] = f"{format_bytes(speed)}/s" if speed else "Calculating..."
+            speed_val = f"{format_bytes(speed)}/s" if speed else "Downloading..."
+            task["speed_str"] = f"{speed_val}{frag_str}"
             task["eta_str"] = format_seconds(d.get("eta"))
-            task["filesize_str"] = format_bytes(total_bytes) if total_bytes > 0 else "Unknown"
+            task["filesize_str"] = format_bytes(total_bytes) if total_bytes > 0 else "Estimating..."
 
             filename = d.get("filename")
             if filename and not task.get("resolved_filename"):
@@ -443,6 +457,22 @@ def sync_download_worker(task_id: str):
             task["speed_str"] = "Finalizing..."
             task["eta_str"] = "00:00"
 
+    # Full browser headers to prevent CDN rate-limiting / throttle clamping
+    browser_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Ch-Ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+    }
+    if extra_headers:
+        browser_headers.update(extra_headers)
+
     ydl_opts = {
         'format': format_spec,
         'outtmpl': outtmpl,
@@ -450,14 +480,16 @@ def sync_download_worker(task_id: str):
         'quiet': True,
         'no_warnings': True,
         'no_color': True,
-        'retries': 20,
-        'fragment_retries': 20,
+        'retries': 30,
+        'fragment_retries': 30,
         'noplaylist': True,
         'nocheckcertificate': True,
         'allow_unplayable_formats': True,
-        'concurrent_fragment_downloads': 16,  # 🚀 Multi-threaded fragment downloading (16x speed)
+        'concurrent_fragment_downloads': 8,   # 🚀 High-speed parallel chunks without triggering CDN drop
         'buffersize': 16 * 1024 * 1024,      # 16MB buffer
-        'http_chunk_size': 10485760,          # 10MB chunk size
+        'http_chunk_size': 10485760,          # 10MB chunk
+        'socket_timeout': 15,
+        'http_headers': browser_headers,      # Pretend to be a real browser to avoid Akamai QoS throttle
     }
 
     if extra_headers:

@@ -294,13 +294,13 @@ async function handleBatchSubmit(e) {
 }
 
 
-// --- Polling & Data Fetching ---
+// --- Polling & Data Fetching (Refreshes every 3 seconds) ---
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(async () => {
     await fetchQueue();
     await fetchStats();
-  }, 1800);
+  }, 3000);
 }
 
 async function fetchQueue() {
