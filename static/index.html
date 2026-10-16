@@ -49,10 +49,11 @@
           <span class="pill-label">Finished:</span>
           <span class="pill-value" id="statCompleted">0</span>
         </div>
-        <div class="pill">
+        <div class="pill pill-disk" title="Auto-cleans files older than 1hr. Click to free space now!" onclick="cleanDiskStorage()" style="cursor: pointer;">
           <span class="pill-dot amber"></span>
           <span class="pill-label">Disk:</span>
           <span class="pill-value" id="statDisk">0 MB</span>
+          <span class="pill-clean-icon" title="Clear downloaded videos now">🧹</span>
         </div>
         <button class="btn-header-yt" id="btnOpenYtModal" onclick="openYtModal()" title="Link YouTube Channel">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -329,6 +330,16 @@
           </div>
 
           <div class="queue-actions">
+            <!-- Manual Refresh Button -->
+            <button class="btn-refresh" id="btnQueueRefresh" onclick="manualRefreshQueue()" title="Refresh download progress now">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 4v6h-6"></path>
+                <path d="M1 20v-6h6"></path>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+              <span>Refresh</span>
+            </button>
+
             <!-- Filter Pills -->
             <div class="filter-pills">
               <button class="filter-pill active" onclick="setFilter('all')">All</button>

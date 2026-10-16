@@ -51,12 +51,88 @@ download_queue: asyncio.Queue = asyncio.Queue()
 MAX_CONCURRENT_WORKERS = 2
 thread_pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_WORKERS)
 
+async def auto_clean_downloads_loop():
+    """
+    Background worker running every 60 seconds.
+    Automatically deletes files from DOWNLOADS_DIR:
+    1) If uploaded to YouTube: deleted exactly 1 hour (3600s) after upload completes.
+    2) If not uploaded: deleted 1 hour after download completes / file creation.
+    Never deletes files while upload is actively in progress.
+    Keeps the YouTube watch link & task entry intact in UI while reclaiming 100% disk space.
+    """
+    ONE_HOUR = 3600
+    while True:
+        try:
+            await asyncio.sleep(60)  # Check every 60 seconds
+            now = time.time()
+            deleted_count = 0
+
+            # Map filename and path to task
+            file_to_task = {}
+            for t in tasks_db.values():
+                fn = t.get("resolved_filename")
+                fp = t.get("file_path")
+                if fn:
+                    file_to_task[fn] = t
+                if fp:
+                    file_to_task[Path(fp).name] = t
+
+            for item in DOWNLOADS_DIR.glob("*"):
+                if item.name == ".gitkeep":
+                    continue
+                if item.is_file():
+                    fname = item.name
+                    task = file_to_task.get(fname)
+
+                    # SAFETY CHECK: Never delete if currently uploading
+                    if task and (task.get("status") == "uploading" or task.get("youtube_status") == "uploading"):
+                        continue
+
+                    should_delete = False
+                    reason = ""
+
+                    # Case 1: Uploaded to YouTube -> Wait 1 hour after upload completion
+                    if task and task.get("uploaded_at"):
+                        time_since_upload = now - task["uploaded_at"]
+                        if time_since_upload >= ONE_HOUR:
+                            should_delete = True
+                            reason = "1 hr after YouTube upload"
+                    # Case 2: General download older than 1 hour
+                    else:
+                        age = now - item.stat().st_mtime
+                        if age >= ONE_HOUR:
+                            should_delete = True
+                            reason = "older than 1 hr"
+
+                    if should_delete:
+                        try:
+                            item.unlink(missing_ok=True)
+                            deleted_count += 1
+                            logger.info(f"🧹 Auto-cleaned video from disk ({reason}): {fname}")
+                            if task:
+                                task["file_path"] = None
+                                task["download_url"] = None
+                                task["filesize_str"] = f"Auto-cleaned ({reason})"
+                        except Exception as e:
+                            logger.warning(f"Failed to auto-delete {fname}: {e}")
+
+            if deleted_count > 0:
+                logger.info(f"🧹 Auto-cleanup finished: Reclaimed space from {deleted_count} video(s).")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in auto_clean_downloads_loop: {e}")
+
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(queue_worker_loop())
-    logger.info("Universal Web Video Downloader background worker loop initialized.")
+    cleaner_task = asyncio.create_task(auto_clean_downloads_loop())
+    logger.info("Universal Web Video Downloader worker & 1-hour auto-cleanup loop initialized.")
     yield
     worker_task.cancel()
+    cleaner_task.cancel()
 
 app = FastAPI(
     title="Universal Web Video Downloader",
@@ -459,16 +535,16 @@ def sync_download_worker(task_id: str):
 
     # Full browser headers to prevent CDN rate-limiting / throttle clamping
     browser_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': '*/*',
         'Accept-Encoding': 'gzip, deflate, br',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Sec-Ch-Ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+        'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-Site': 'same-site',
     }
     if extra_headers:
         browser_headers.update(extra_headers)
@@ -485,15 +561,11 @@ def sync_download_worker(task_id: str):
         'noplaylist': True,
         'nocheckcertificate': True,
         'allow_unplayable_formats': True,
-        'concurrent_fragment_downloads': 8,   # 🚀 High-speed parallel chunks without triggering CDN drop
-        'buffersize': 16 * 1024 * 1024,      # 16MB buffer
-        'http_chunk_size': 10485760,          # 10MB chunk
-        'socket_timeout': 15,
-        'http_headers': browser_headers,      # Pretend to be a real browser to avoid Akamai QoS throttle
+        'concurrent_fragment_downloads': 16,  # 🚀 16 concurrent fragments for stable 5-8 MB/s
+        'buffersize': 16 * 1024 * 1024,       # 16MB buffer
+        'socket_timeout': 20,
+        'http_headers': browser_headers,       # Full browser identity for every chunk
     }
-
-    if extra_headers:
-        ydl_opts['http_headers'] = extra_headers
 
     if postprocessors:
         ydl_opts['postprocessors'] = postprocessors
@@ -569,6 +641,7 @@ def sync_download_worker(task_id: str):
                     if yt_res.get("success"):
                         task["youtube_url"] = yt_res.get("url")
                         task["youtube_status"] = "uploaded"
+                        task["uploaded_at"] = time.time()
                         logger.info(f"Task {task_id}: YouTube upload succeeded -> {yt_res.get('url')}")
                     else:
                         task["youtube_status"] = f"Upload failed: {yt_res.get('error')}"
@@ -655,6 +728,7 @@ def create_task_entry(
         "created_at": time.time(),
         "started_at": None,
         "completed_at": None,
+        "uploaded_at": None,
     }
     return task_id
 
@@ -690,6 +764,7 @@ def background_yt_upload(task_id: str):
         if yt_res.get("success"):
             task["youtube_url"] = yt_res.get("url")
             task["youtube_status"] = "uploaded"
+            task["uploaded_at"] = time.time()
             task["status"] = "completed"
             task["progress"] = 100.0
             logger.info(f"Task {task_id}: YouTube upload succeeded -> {yt_res.get('url')}")
@@ -925,6 +1000,34 @@ async def download_completed_file(task_id: str):
         filename=friendly_name,
         media_type="application/octet-stream"
     )
+
+
+@app.post("/api/storage/clean")
+async def clean_storage_manually():
+    """Manually deletes all downloaded video files to free up disk space immediately."""
+    count = 0
+    freed_bytes = 0
+    for item in DOWNLOADS_DIR.glob("*"):
+        if item.name == ".gitkeep":
+            continue
+        if item.is_file():
+            try:
+                freed_bytes += item.stat().st_size
+                fname = item.name
+                item.unlink()
+                count += 1
+                for t in tasks_db.values():
+                    if t.get("resolved_filename") == fname or (t.get("file_path") and fname in str(t.get("file_path", ""))):
+                        t["file_path"] = None
+                        t["download_url"] = None
+                        t["filesize_str"] = "Cleaned"
+            except Exception as e:
+                logger.warning(f"Could not delete {item.name}: {e}")
+    return {
+        "success": True,
+        "deleted_files": count,
+        "freed_space": format_bytes(freed_bytes)
+    }
 
 
 @app.get("/api/stats")

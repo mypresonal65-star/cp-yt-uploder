@@ -196,6 +196,26 @@ body {
   font-weight: 600;
 }
 
+.pill-disk {
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  user-select: none;
+}
+.pill-disk:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  transform: translateY(-1px);
+}
+.pill-clean-icon {
+  font-size: 0.95rem;
+  margin-left: 4px;
+  display: inline-block;
+  transition: transform var(--transition-fast);
+}
+.pill-disk:hover .pill-clean-icon {
+  transform: scale(1.25) rotate(-15deg);
+}
+
 /* --- Content Grid --- */
 .app-content {
   display: grid;
@@ -523,6 +543,44 @@ input:focus, textarea:focus {
 .filter-pill.active {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-main);
+}
+
+.btn-refresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #c7d2fe;
+  font-family: var(--font-main);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.btn-refresh:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.6);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.btn-refresh svg {
+  transition: transform 0.3s ease;
+}
+
+.btn-refresh.spinning svg {
+  animation: spinRefresh 0.6s linear infinite;
+}
+
+@keyframes spinRefresh {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .btn-icon {

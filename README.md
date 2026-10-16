@@ -1,90 +1,131 @@
-# 🌐 OmniStream — Universal Web Video Downloader
+# 🌐 OmniStream — High-Speed Web Video Downloader & YouTube Auto-Uploader
 
-A modern, high-performance web-based video and media downloader built with **FastAPI**, **yt-dlp**, and a glowing dark-mode glassmorphic interface. Designed to run seamlessly both locally and deployed on **Render**.
-
----
-
-## ✨ Features
-
-- 🎥 **Single Video Downloader**: Enter any public media URL (YouTube, Vimeo, Twitter/X, direct MP4/M3U8 streams, etc.).
-- 🛡️ **ClassPlus & Akamai DRM (L1 + L2) Resolver**: Native automatic token signing and MPD key resolution for ClassPlus, Akamai CDN, and Testbook streams.
-- 📦 **Batch / Multi-Link Downloader**: Paste multiple links (one per line) or `Title | URL` format to enqueue a playlist or batch.
-
-- ⚙️ **Custom Video Name**: Specify your own custom file name before downloading.
-- 📐 **Resolution Selector**: Easily choose between **Best (Original)**, **1080p**, **720p (HD)**, **480p (SD)**, **360p**, or **MP3 (Audio Only)**.
-- 📊 **Real-time Queue Dashboard**:
-  - Live percentage progress bar.
-  - Transfer speed (MB/s), estimated time remaining (ETA), and file size.
-  - Status badges (`Queued`, `Downloading`, `Processing`, `Completed`, `Failed`).
-  - Filter tasks by status: *All*, *Active*, *Done*, *Failed*.
-  - Task cancellation and clear completed tasks.
-- 💾 **Direct Browser Download**: Once completed, click **Download File** to save the merged media directly to your device.
-- 🚀 **100% Render Ready**: Includes `Dockerfile`, `render.yaml`, and `Procfile` configured for free/standard tier web services.
+A powerful, high-performance web-based video downloader and YouTube auto-uploader built with **FastAPI**, **yt-dlp**, and a modern glassmorphic dark-mode UI. Features native **ClassPlus & Akamai DRM (L1 + L2)** resolution, **16x parallel fragment downloading**, multi-user **YouTube OAuth2 uploader** via Cloudflare D1, and **1-hour automatic disk cleanup**.
 
 ---
 
-## 📁 Project Structure
+## ✨ Key Features
 
-```text
-website/
-├── app.py                 # FastAPI backend server with queue worker and yt-dlp
-├── requirements.txt       # Python dependencies
-├── Dockerfile             # Production container with ffmpeg & aria2
-├── render.yaml            # Render deployment blueprint
-├── Procfile               # Heroku/Render process declaration
-├── downloads/             # Temporary storage for downloaded files
-├── static/
-│   ├── index.html         # Modern web interface
-│   ├── style.css          # Glassmorphic dark design system
-│   └── app.js             # Real-time queue manager & polling logic
-└── README.md              # Documentation & deployment guide
+- ⚡ **High-Speed Parallel Engine**: Downloads HLS/DASH streams with **16 concurrent fragments** and real Chrome browser client-hints to eliminate CDN throttling (stable 5–8+ MB/s).
+- 📺 **Multi-User YouTube Auto-Upload**: Authenticate your own YouTube channel with `client_secrets.json` via Cloudflare Worker & D1 database. Downloaded videos upload automatically to YouTube as Unlisted/Private/Public.
+- 🛡️ **ClassPlus & Akamai DRM Resolver**: Automatic token signing, key resolution, and decryption for ClassPlus, Akamai CDN, and Testbook streams.
+- 🧹 **Automatic & 1-Click Disk Cleanup**:
+  - Automatically deletes video files from storage **1 hour after YouTube upload** (or download) finishes.
+  - Retains task history and **Watch on YouTube** direct links forever.
+  - Header **`💾 Disk: ... MB 🧹`** button frees disk space instantly in 1 click.
+- 🔄 **Real-Time Live Queue & Refresh Button**:
+  - Live progress bar, fragment tracker (`Frag X/Y`), speed, and ETA.
+  - Dedicated **"🔄 Refresh"** button to update queue instantly without page reloads.
+  - Smart in-place DOM updates (zero screen flickers or scroll jumps).
+- 📦 **Batch Downloader**: Paste multiple video links or `Title | URL` format to enqueue entire batches easily.
+
+---
+
+## 🚀 Heroku Deployment Guide (Easy Step-by-Step)
+
+Deploy your own 24/7 web instance on Heroku in 4 simple steps:
+
+### Step 1: Push Code to GitHub
+In your local computer terminal, run:
+```bash
+git add .
+git commit -m "Deploy to Heroku"
+git push
 ```
+
+### Step 2: Create a New Heroku App
+1. Log in to [Heroku Dashboard](https://dashboard.heroku.com).
+2. Click **New** (top right) -> **Create new app**.
+3. Enter any unique **App name** (e.g. `my-cp-yt-downloader`) and click **Create app**.
+
+### Step 3: Add Buildpacks & Config Var (Settings Tab)
+1. Go to the **Settings** tab.
+2. Scroll down to **Buildpacks** and click **Add buildpack**:
+   - Paste this FFmpeg URL and click **Save changes**:
+     ```text
+     https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git
+     ```
+3. Click **Add buildpack** again, select **python**, and click **Save changes**.  
+   *(Make sure FFmpeg is #1 and Python is #2 in the list).*
+4. In the **Config Vars** section above, click **Reveal Config Vars**:
+   - **KEY:** `CLOUDFLARE_AUTH_API`
+   - **VALUE:** `https://yt-uplode.mypresonal65.workers.dev`
+   - Click **Add**.
+
+### Step 4: Connect GitHub & Deploy
+1. Go to the **Deploy** tab.
+2. Under **Deployment method**, click the **GitHub** icon and connect your GitHub account.
+3. Search for your repository (`cp-yt-uploder`) and click **Connect**.
+4. Scroll down to **Manual deploy**, select branch `main`, and click **Deploy Branch**.
+5. Once build completes (takes ~2 minutes), click **Open app** to launch your live downloader!
+
+---
+
+## ⚡ Google Colab Setup (Zero-Cost On-Demand)
+
+Run completely free on Google Colab with high-speed Google cloud network:
+
+### Cell 1: Clone & Setup Dependencies
+```python
+!git clone https://github.com/mypresonal65-star/cp-yt-uploder
+%cd cp-yt-uploder
+!pip install -r requirements.txt
+!apt-get install -y ffmpeg aria2 > /dev/null 2>&1
+```
+
+### Cell 2: Install LocalTunnel (or Ngrok)
+```python
+!npm install -g localtunnel
+```
+
+### Cell 3: Start Server & Expose Public URL
+```python
+import subprocess
+import time
+import urllib.request
+
+# Start FastAPI server in background
+subprocess.Popen(["python3", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"], cwd="website")
+time.sleep(3)
+
+# Print LocalTunnel IP (password for localtunnel page)
+ip = urllib.request.urlopen('https://ipv4.icanhazip.com').read().decode('utf8').strip()
+print(f"🔑 LocalTunnel Password / Endpoint IP: {ip}")
+
+# Expose port 8000
+!npx localtunnel --port 8000
+```
+Open the generated `.loca.lt` URL, paste the IP password, and enjoy high-speed downloads!
+
+---
+
+## 🌐 Deploying to Render.com
+
+1. In [Render Dashboard](https://dashboard.render.com), click **New +** -> **Web Service**.
+2. Connect your GitHub repository.
+3. Set **Root Directory** to `website`.
+4. Set **Environment** to `Docker` (uses `website/Dockerfile` with FFmpeg, aria2, and Bento4 mp4decrypt pre-installed).
+5. Choose **Free** plan and click **Create Web Service**.
 
 ---
 
 ## 💻 Running Locally
 
-### 1. Prerequisites
+### Prerequisites
 - Python 3.10+
-- `ffmpeg` installed on your system (for audio/video merging).
+- [FFmpeg](https://ffmpeg.org/download.html) installed and added to your system PATH.
 
-### 2. Setup
+### Installation
 ```bash
-# Navigate to website directory
-cd website
-
-# Create a virtual environment (optional but recommended)
-python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
+# Clone the repository
+git clone https://github.com/mypresonal65-star/cp-yt-uploder.git
+cd cp-yt-uploder
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Start local server
+cd website
+python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
-
-### 3. Start the Server
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
-Open your browser and navigate to: **`http://localhost:8000`**
-
----
-
-## 🚀 Deploying to Render.com
-
-### Method 1: Deploy with Docker (Recommended)
-1. Push your repository to GitHub or GitLab.
-2. Log in to [Render Dashboard](https://dashboard.render.com).
-3. Click **New +** -> **Web Service**.
-4. Connect your Git repository.
-5. In **Root Directory**, set: `website`
-6. In **Environment**, choose **Docker**.
-7. In **Plan**, select **Free**.
-8. Click **Create Web Service**. Render will automatically build the container with Python, ffmpeg, and aria2 pre-configured!
-
-### Method 2: Deploy with Blueprint (`render.yaml`)
-1. On Render, click **Blueprints** -> **New Blueprint Instance**.
-2. Select your repository.
-3. Render will automatically detect `website/render.yaml` and configure the service.
+Open browser at: **`http://localhost:8000`**

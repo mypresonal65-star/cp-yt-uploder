@@ -294,13 +294,39 @@ async function handleBatchSubmit(e) {
 }
 
 
-// --- Polling & Data Fetching (Refreshes every 3 seconds) ---
+// --- Polling & Data Fetching (Refreshes every 2 seconds) ---
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(async () => {
     await fetchQueue();
     await fetchStats();
-  }, 3000);
+  }, 2000);
+}
+
+// Automatically resume & refresh whenever user switches back to this tab
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    fetchQueue();
+    fetchStats();
+    startPolling();
+  }
+});
+
+// Manual Refresh for Queue & Progress
+async function manualRefreshQueue() {
+  const btn = document.getElementById('btnQueueRefresh');
+  if (btn) btn.classList.add('spinning');
+  try {
+    await fetchQueue();
+    await fetchStats();
+    showToast('Download queue refreshed!', 'info');
+  } catch (err) {
+    showToast('Failed to refresh queue', 'error');
+  } finally {
+    setTimeout(() => {
+      if (btn) btn.classList.remove('spinning');
+    }, 600);
+  }
 }
 
 async function fetchQueue() {
@@ -391,6 +417,71 @@ function renderQueue() {
   }
 
   emptyState.style.display = 'none';
+
+  // In-place DOM update to eliminate re-rendering flicker and jump
+  const existingCardIds = Array.from(container.querySelectorAll('.task-card')).map(c => c.id.replace('card-', ''));
+  const filteredIds = filtered.map(t => t.id);
+  const canUpdateInPlace = existingCardIds.length === filteredIds.length && 
+                           existingCardIds.every((id, idx) => id === filteredIds[idx]);
+
+  if (canUpdateInPlace) {
+    let requiresFullRebuild = false;
+    filtered.forEach(task => {
+      const card = document.getElementById(`card-${task.id}`);
+      if (!card) { requiresFullRebuild = true; return; }
+
+      const progressPercent = task.progress || 0;
+      const speed = task.speed_str || '--';
+      const eta = task.eta_str || '--';
+      const filesize = task.filesize_str || '--';
+      const isDownloading = task.status === 'downloading';
+      const isUploading = task.status === 'uploading';
+      const isCompleted = task.status === 'completed';
+
+      // Check if status changed
+      if (!card.classList.contains(`status-${task.status}`)) {
+        requiresFullRebuild = true;
+        return;
+      }
+
+      // Smooth progress bar slide
+      const fill = card.querySelector('.progress-fill');
+      if (fill) {
+        fill.style.width = `${progressPercent}%`;
+        fill.classList.toggle('done', isCompleted);
+      }
+
+      // Stats: % and speed
+      const statPercent = card.querySelector('.task-stats .stat-item:first-child');
+      if (statPercent) {
+        statPercent.innerHTML = `<span>${progressPercent}%</span>${(isDownloading || isUploading) ? `<span>• ${speed}</span>` : ''}`;
+      }
+
+      // Stats: ETA or error or YouTube status
+      const statEta = card.querySelector('.task-stats .stat-item:last-child');
+      if (statEta) {
+        if (isDownloading) {
+          statEta.innerHTML = `<span>ETA: ${eta}</span>`;
+        } else if (task.status === 'failed') {
+          statEta.innerHTML = `<span style="color: var(--accent-rose);">${escapeHtml(task.error_message || 'Download Error')}</span>`;
+        } else if (task.youtube_status && !task.youtube_url) {
+          statEta.innerHTML = `<span style="color: #fbbf24;">${escapeHtml(task.youtube_status)}</span>`;
+        } else {
+          statEta.innerHTML = '';
+        }
+      }
+
+      // Filesize
+      const sizeEl = card.querySelector('.task-meta span:last-child');
+      if (sizeEl) {
+        sizeEl.textContent = `Size: ${filesize}`;
+      }
+    });
+
+    if (!requiresFullRebuild) {
+      return;
+    }
+  }
 
   // Build Cards
   const cardsHtml = filtered.map(task => {
@@ -572,5 +663,25 @@ async function uploadTaskToYouTube(taskId) {
     }
   } catch (e) {
     showToast('Failed to connect to server.', 'error');
+  }
+}
+
+async function cleanDiskStorage() {
+  if (!confirm("Are you sure you want to clean disk storage? All downloaded video files will be permanently deleted to free space.")) {
+    return;
+  }
+  try {
+    showToast('Cleaning server disk storage...', 'info');
+    const res = await fetch('/api/storage/clean', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`Cleaned! Freed ${data.freed_space} (${data.deleted_files} files deleted)`, 'success');
+      await fetchStats();
+      await fetchQueue();
+    } else {
+      showToast('Failed to clean disk storage.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error while cleaning storage.', 'error');
   }
 }
