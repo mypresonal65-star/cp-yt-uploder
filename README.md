@@ -129,3 +129,27 @@ cd website
 python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 Open browser at: **`http://localhost:8000`**
+
+---
+
+## 📁 Repository Structure
+
+```text
+├── Procfile               # Heroku root process runner
+├── requirements.txt       # Python dependencies (FastAPI, yt-dlp, Google API)
+├── runtime.txt            # Python 3.11.9 runtime definition for Heroku
+├── Aptfile                # System dependencies (ffmpeg, aria2)
+├── website/
+│   ├── app.py             # FastAPI backend, 16x fragment engine & 1hr auto-cleaner
+│   ├── youtube_uploader.py# Cloudflare D1 multi-user OAuth2 YouTube uploader
+│   ├── cloudflare_api.txt # Cloudflare Worker endpoint
+│   ├── Dockerfile         # Production Docker container with ffmpeg & mp4decrypt
+│   ├── requirements.txt   # Web dependencies
+│   ├── Procfile           # Website directory Procfile
+│   ├── downloads/         # Temporary video storage
+│   └── static/
+│       ├── index.html     # Modern glassmorphism UI & YouTube linker modal
+│       ├── style.css      # Dark-mode styling, animations & pills
+│       └── app.js         # Real-time queue, 2s auto-polling & in-place DOM updates
+└── README.md              # Documentation & Deployment Guide
+```
