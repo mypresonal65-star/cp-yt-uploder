@@ -7,11 +7,12 @@ A powerful, high-performance web-based video downloader and YouTube auto-uploade
 ## ✨ Key Features
 
 - ⚡ **High-Speed Parallel Engine**: Downloads HLS/DASH streams with **16 concurrent fragments** and real Chrome browser client-hints to eliminate CDN throttling (stable 5–8+ MB/s).
+- ✈️ **Telegram MTProto 2GB Uploader**: Upload videos up to **2 GB** directly to your Telegram channels/groups using your own Bot Token, API ID, and API Hash. Supports live video streaming flags (`supports_streaming=True`), auto-thumbnail generation, and upload progress.
 - 📺 **Multi-User YouTube Auto-Upload**: Authenticate your own YouTube channel with `client_secrets.json` via Cloudflare Worker & D1 database. Downloaded videos upload automatically to YouTube as Unlisted/Private/Public.
 - 🛡️ **ClassPlus & Akamai DRM Resolver**: Automatic token signing, key resolution, and decryption for ClassPlus, Akamai CDN, and Testbook streams.
 - 🧹 **Automatic & 1-Click Disk Cleanup**:
-  - Automatically deletes video files from storage **1 hour after YouTube upload** (or download) finishes.
-  - Retains task history and **Watch on YouTube** direct links forever.
+  - Automatically deletes video files from storage **1 hour after YouTube / Telegram upload** (or download) finishes.
+  - Retains task history and **Watch on YouTube / Watch on Telegram** direct links forever.
   - Header **`💾 Disk: ... MB 🧹`** button frees disk space instantly in 1 click.
 - 🔄 **Real-Time Live Queue & Refresh Button**:
   - Live progress bar, fragment tracker (`Frag X/Y`), speed, and ETA.
@@ -129,3 +130,38 @@ cd website
 python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 Open browser at: **`http://localhost:8000`**
+
+---
+
+---
+
+## ✈️ Telegram 2GB Uploader Setup
+
+1. **Bot Token**: Open [@BotFather](https://t.me/BotFather) on Telegram and send `/newbot` to create a bot and copy your `BOT_TOKEN`.
+2. **API ID & API Hash**: Go to [my.telegram.org](https://my.telegram.org), log in, open **API development tools**, and copy your `API_ID` and `API_HASH`.
+3. **Channel Setup**: Add your bot to your target Telegram Channel or Group as an **Administrator** with permission to **Post Messages**.
+4. **Link in Web App**:
+   - In the web app header, click **Link Telegram**.
+   - Paste your `Bot Token`, `API ID`, `API Hash`, and default Channel ID (e.g. `@MyChannel` or `-1001234567890`).
+   - Click **Test & Save Credentials**.
+   - Check **"Auto-Upload to Telegram (Up to 2GB)"** when adding any single or batch video!
+
+---
+
+## 📁 Repository Structure
+
+```text
+├── Procfile               # Heroku root process runner (uvicorn app:app)
+├── requirements.txt       # Dependencies (FastAPI, yt-dlp, pyrofork, TgCrypto)
+├── runtime.txt            # Python 3.11.9 runtime definition for Heroku
+├── Aptfile                # System dependencies (ffmpeg, aria2)
+├── app.py                 # FastAPI backend (16x engine, YouTube & Telegram uploaders)
+├── telegram_uploader.py   # MTProto 2GB Telegram video uploader (pyrofork + TgCrypto)
+├── youtube_uploader.py    # Cloudflare D1 multi-user OAuth2 YouTube uploader
+├── static/                # Modern Glassmorphic Frontend
+│   ├── index.html         # UI with YouTube & Telegram credentials modals
+│   ├── style.css          # Dark-mode styling, animations, pills & modals
+│   └── app.js             # Real-time queue, 2s auto-polling & upload triggers
+├── website/               # Complete mirror directory
+└── README.md              # Documentation & Deployment Guide
+```

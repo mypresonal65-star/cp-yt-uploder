@@ -60,7 +60,7 @@ async def auto_clean_downloads_loop():
     """
     Background worker running every 60 seconds.
     Automatically deletes files from DOWNLOADS_DIR:
-    1) If uploaded to YouTube: deleted exactly 1 hour (3600s) after upload completes.
+    1) If uploaded to YouTube or Telegram: deleted exactly 1 hour (3600s) after latest upload completes.
     2) If not uploaded: deleted 1 hour after download completes / file creation.
     Never deletes files while upload is actively in progress.
     Keeps the YouTube watch link & task entry intact in UI while reclaiming 100% disk space.
@@ -214,7 +214,6 @@ except Exception as e:
     logger.warning(f"Telegram uploader module not available: {e}")
     TELEGRAM_UPLOADER_AVAILABLE = False
     TG_IMPORT_ERROR = str(e)
-
 
 
 # --- Models ---
