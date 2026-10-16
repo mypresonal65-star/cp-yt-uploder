@@ -455,6 +455,9 @@ def sync_download_worker(task_id: str):
         'noplaylist': True,
         'nocheckcertificate': True,
         'allow_unplayable_formats': True,
+        'concurrent_fragment_downloads': 16,  # 🚀 Multi-threaded fragment downloading (16x speed)
+        'buffersize': 16 * 1024 * 1024,      # 16MB buffer
+        'http_chunk_size': 10485760,          # 10MB chunk size
     }
 
     if extra_headers:
