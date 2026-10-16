@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchQueue();
   fetchStats();
   checkYouTubeStatus();
+  checkTelegramStatus();
   startPolling();
 });
 
@@ -146,6 +147,134 @@ function toggleYtPrivacy(mode) {
   }
 }
 
+// --- Telegram Status & Settings Management ---
+function getTelegramConfig() {
+  return {
+    bot_token: localStorage.getItem('omni_tg_bot_token') || '',
+    api_id: localStorage.getItem('omni_tg_api_id') || '',
+    api_hash: localStorage.getItem('omni_tg_api_hash') || '',
+    default_chat: localStorage.getItem('omni_tg_default_chat') || '',
+    bot_username: localStorage.getItem('omni_tg_bot_username') || ''
+  };
+}
+
+function checkTelegramStatus() {
+  const cfg = getTelegramConfig();
+  const headerBtn = document.getElementById('btnOpenTgModal');
+  const headerText = document.getElementById('headerTgStatusText');
+  const singleBadge = document.getElementById('tgConfigBadgeSingle');
+  const batchBadge = document.getElementById('tgConfigBadgeBatch');
+  const modalDot = document.getElementById('modalTgDot');
+  const modalMsg = document.getElementById('modalTgStatusMsg');
+
+  const isConfigured = Boolean(cfg.bot_token && cfg.api_id && cfg.api_hash);
+
+  if (isConfigured) {
+    const displayBot = cfg.bot_username ? `@${cfg.bot_username}` : 'TG Bot Ready';
+    if (headerBtn) headerBtn.classList.add('connected');
+    if (headerText) headerText.textContent = displayBot;
+    if (singleBadge) { singleBadge.textContent = '● ' + displayBot; singleBadge.className = 'tg-status-tag active'; }
+    if (batchBadge) { batchBadge.textContent = '● ' + displayBot; batchBadge.className = 'tg-status-tag active'; }
+    if (modalDot) modalDot.className = 'status-indicator-dot active';
+    if (modalMsg) modalMsg.textContent = `Connected as ${displayBot}`;
+  } else {
+    if (headerBtn) headerBtn.classList.remove('connected');
+    if (headerText) headerText.textContent = 'Link Telegram';
+    if (singleBadge) { singleBadge.textContent = 'Config Needed'; singleBadge.className = 'tg-status-tag'; }
+    if (batchBadge) { batchBadge.textContent = 'Config Needed'; batchBadge.className = 'tg-status-tag'; }
+    if (modalDot) modalDot.className = 'status-indicator-dot';
+    if (modalMsg) modalMsg.textContent = 'No Bot Token saved yet';
+  }
+}
+
+function openTgModal() {
+  const overlay = document.getElementById('tgModalOverlay');
+  const cfg = getTelegramConfig();
+  const tokenInp = document.getElementById('tgModalBotToken');
+  const apiIdInp = document.getElementById('tgModalApiId');
+  const apiHashInp = document.getElementById('tgModalApiHash');
+  const chatInp = document.getElementById('tgModalDefaultChat');
+
+  if (tokenInp) tokenInp.value = cfg.bot_token;
+  if (apiIdInp) apiIdInp.value = cfg.api_id;
+  if (apiHashInp) apiHashInp.value = cfg.api_hash;
+  if (chatInp) chatInp.value = cfg.default_chat;
+
+  checkTelegramStatus();
+  if (overlay) overlay.classList.remove('hidden');
+}
+
+function closeTgModal(e) {
+  const overlay = document.getElementById('tgModalOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function toggleTgOptions(mode) {
+  const checkbox = document.getElementById(`${mode}TgUpload`);
+  const options = document.getElementById(`${mode}TgOptions`);
+  const chatInput = document.getElementById(`${mode}TgChatId`);
+  if (checkbox && options) {
+    options.classList.toggle('hidden', !checkbox.checked);
+    if (checkbox.checked && chatInput && !chatInput.value) {
+      const cfg = getTelegramConfig();
+      if (cfg.default_chat) chatInput.value = cfg.default_chat;
+    }
+  }
+}
+
+async function saveTelegramSettings(e) {
+  e.preventDefault();
+  const botToken = document.getElementById('tgModalBotToken').value.trim();
+  const apiId = document.getElementById('tgModalApiId').value.trim();
+  const apiHash = document.getElementById('tgModalApiHash').value.trim();
+  const defaultChat = document.getElementById('tgModalDefaultChat').value.trim();
+  const btn = document.getElementById('btnSaveTg');
+
+  if (!botToken || !apiId || !apiHash) {
+    showToast('Please fill in Bot Token, API ID, and API Hash', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Testing Token...';
+
+  try {
+    const res = await fetch('/api/telegram/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bot_token: botToken })
+    });
+    const data = await res.json();
+    if (data.valid) {
+      localStorage.setItem('omni_tg_bot_token', botToken);
+      localStorage.setItem('omni_tg_api_id', apiId);
+      localStorage.setItem('omni_tg_api_hash', apiHash);
+      if (defaultChat) localStorage.setItem('omni_tg_default_chat', defaultChat);
+      if (data.username) localStorage.setItem('omni_tg_bot_username', data.username);
+
+      checkTelegramStatus();
+      if (data.pyrogram_available === false) {
+        showToast(`Bot @${data.username || 'Bot'} verified, BUT Pyrofork is missing on server! Run: !pip install pyrofork tgcrypto in Colab.`, 'warning');
+      } else {
+        showToast(`Telegram Bot Verified! Connected: @${data.username || data.first_name}`, 'success');
+      }
+      closeTgModal();
+    } else {
+      showToast(`Telegram Error: ${data.error || 'Invalid Bot Token'}`, 'error');
+    }
+  } catch (err) {
+    showToast('Network error verifying Telegram bot credentials', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+      Test & Save Credentials
+    `;
+  }
+}
+
 
 // --- Tab Switching ---
 function switchTab(tab) {
@@ -200,6 +329,15 @@ async function handleSingleSubmit(e) {
   const resInput = document.querySelector('input[name="singleRes"]:checked');
   const ytUpload = document.getElementById('singleYtUpload')?.checked || false;
   const ytPrivacy = document.getElementById('singleYtPrivacy')?.value || 'unlisted';
+  const tgUpload = document.getElementById('singleTgUpload')?.checked || false;
+  const tgChatId = document.getElementById('singleTgChatId')?.value.trim() || '';
+  const tgConfig = getTelegramConfig();
+
+  if (tgUpload && (!tgConfig.bot_token || !tgConfig.api_id || !tgConfig.api_hash)) {
+    showToast('Please configure Telegram Bot Token & API keys first!', 'error');
+    openTgModal();
+    return;
+  }
 
   const url = urlInput.value.trim();
   const customName = nameInput.value.trim();
@@ -223,7 +361,12 @@ async function handleSingleSubmit(e) {
         resolution: resolution,
         upload_to_youtube: ytUpload,
         privacy_status: ytPrivacy,
-        user_id: getUserId()
+        user_id: getUserId(),
+        upload_to_telegram: tgUpload,
+        tg_bot_token: tgConfig.bot_token || null,
+        tg_api_id: tgConfig.api_id || null,
+        tg_api_hash: tgConfig.api_hash || null,
+        tg_chat_id: tgChatId || tgConfig.default_chat || null
       })
     });
 
@@ -251,6 +394,15 @@ async function handleBatchSubmit(e) {
   const resInput = document.querySelector('input[name="batchRes"]:checked');
   const ytUpload = document.getElementById('batchYtUpload')?.checked || false;
   const ytPrivacy = document.getElementById('batchYtPrivacy')?.value || 'unlisted';
+  const tgUpload = document.getElementById('batchTgUpload')?.checked || false;
+  const tgChatId = document.getElementById('batchTgChatId')?.value.trim() || '';
+  const tgConfig = getTelegramConfig();
+
+  if (tgUpload && (!tgConfig.bot_token || !tgConfig.api_id || !tgConfig.api_hash)) {
+    showToast('Please configure Telegram Bot Token & API keys first!', 'error');
+    openTgModal();
+    return;
+  }
 
   const rawText = textArea.value.trim();
   const defaultRes = resInput ? resInput.value : '720';
@@ -272,7 +424,12 @@ async function handleBatchSubmit(e) {
         default_resolution: defaultRes,
         upload_to_youtube: ytUpload,
         default_privacy: ytPrivacy,
-        user_id: getUserId()
+        user_id: getUserId(),
+        upload_to_telegram: tgUpload,
+        tg_bot_token: tgConfig.bot_token || null,
+        tg_api_id: tgConfig.api_id || null,
+        tg_api_hash: tgConfig.api_hash || null,
+        tg_chat_id: tgChatId || tgConfig.default_chat || null
       })
     });
 
@@ -331,7 +488,8 @@ async function manualRefreshQueue() {
 
 async function fetchQueue() {
   try {
-    const res = await fetch('/api/queue');
+    const uid = getUserId();
+    const res = await fetch(`/api/queue?user_id=${encodeURIComponent(uid)}`);
     if (!res.ok) return;
     const data = await res.json();
     allTasks = data.tasks || [];
@@ -343,7 +501,8 @@ async function fetchQueue() {
 
 async function fetchStats() {
   try {
-    const res = await fetch('/api/stats');
+    const uid = getUserId();
+    const res = await fetch(`/api/stats?user_id=${encodeURIComponent(uid)}`);
     if (!res.ok) return;
     const stats = await res.json();
     document.getElementById('statActive').textContent = stats.active_tasks;
@@ -368,7 +527,8 @@ function setFilter(filter) {
 // --- Delete Single Task ---
 async function deleteTask(taskId) {
   try {
-    const res = await fetch(`/api/queue/${taskId}`, { method: 'DELETE' });
+    const uid = getUserId();
+    const res = await fetch(`/api/queue/${taskId}?user_id=${encodeURIComponent(uid)}`, { method: 'DELETE' });
     if (res.ok) {
       showToast('Task removed from queue', 'info');
       await fetchQueue();
@@ -382,7 +542,8 @@ async function deleteTask(taskId) {
 // --- Clear Finished Queue ---
 async function clearFinishedQueue() {
   try {
-    const res = await fetch('/api/queue/clear', { method: 'POST' });
+    const uid = getUserId();
+    const res = await fetch(`/api/queue/clear?user_id=${encodeURIComponent(uid)}`, { method: 'POST' });
     if (res.ok) {
       const data = await res.json();
       showToast(`Cleared ${data.cleared_count} finished tasks`, 'info');
@@ -466,6 +627,8 @@ function renderQueue() {
           statEta.innerHTML = `<span style="color: var(--accent-rose);">${escapeHtml(task.error_message || 'Download Error')}</span>`;
         } else if (task.youtube_status && !task.youtube_url) {
           statEta.innerHTML = `<span style="color: #fbbf24;">${escapeHtml(task.youtube_status)}</span>`;
+        } else if (task.telegram_status && !task.telegram_url) {
+          statEta.innerHTML = `<span style="color: #38bdf8;">${escapeHtml(task.telegram_status)}</span>`;
         } else {
           statEta.innerHTML = '';
         }
@@ -500,7 +663,11 @@ function renderQueue() {
       statusText = '<span class="pill-dot blue pulse"></span> Downloading';
     } else if (isUploading) {
       statusBadgeClass = 'badge-downloading';
-      statusText = '<span class="pill-dot amber pulse"></span> Uploading to YouTube...';
+      if (task.telegram_status === 'uploading') {
+        statusText = '<span class="pill-dot blue pulse"></span> Uploading to Telegram...';
+      } else {
+        statusText = '<span class="pill-dot amber pulse"></span> Uploading to YouTube...';
+      }
     } else if (isProcessing) {
       statusBadgeClass = 'badge-processing';
       statusText = 'Merging / Encoding';
@@ -528,6 +695,7 @@ function renderQueue() {
               <span class="badge-res">${escapeHtml(task.resolution.toUpperCase())}</span>
               ${task.media_type && task.media_type !== 'Standard' ? `<span class="badge-drm">⚡ ${escapeHtml(task.media_type)}</span>` : ''}
               ${task.upload_to_youtube ? `<span class="badge-drm" style="color:#ff6666; border-color:rgba(255,0,0,0.35); background:rgba(255,0,0,0.12);">🔴 YT (${escapeHtml(task.privacy_status || 'unlisted')})</span>` : ''}
+              ${task.upload_to_telegram ? `<span class="badge-drm" style="color:#38bdf8; border-color:rgba(0,136,204,0.35); background:rgba(0,136,204,0.12);">✈ TG (${escapeHtml(task.tg_chat_id || 'Chat')})</span>` : ''}
               <span>Size: ${escapeHtml(filesize)}</span>
             </div>
 
@@ -550,6 +718,7 @@ function renderQueue() {
               ${isDownloading ? `<span>ETA: ${eta}</span>` : ''}
               ${isFailed ? `<span style="color: var(--accent-rose);">${escapeHtml(task.error_message || 'Download Error')}</span>` : ''}
               ${task.youtube_status && !task.youtube_url ? `<span style="color: #fbbf24;">${escapeHtml(task.youtube_status)}</span>` : ''}
+              ${task.telegram_status && !task.telegram_url ? `<span style="color: #38bdf8;">${escapeHtml(task.telegram_status)}</span>` : ''}
             </div>
           </div>
         </div>
@@ -570,6 +739,21 @@ function renderQueue() {
                   <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                 </svg>
                 Upload to YT
+              </button>
+            ` : '')}
+            ${task.telegram_url ? `
+              <a href="${escapeHtml(task.telegram_url)}" target="_blank" rel="noopener noreferrer" class="btn-tg-watch" title="Watch on Telegram">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                </svg>
+                Watch on TG
+              </a>
+            ` : (isCompleted ? `
+              <button class="btn-tg-watch" onclick="uploadTaskToTelegram('${task.id}')" title="Upload to Telegram">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                </svg>
+                Upload to TG
               </button>
             ` : '')}
             ${isCompleted && task.download_url ? `
@@ -666,13 +850,49 @@ async function uploadTaskToYouTube(taskId) {
   }
 }
 
+async function uploadTaskToTelegram(taskId) {
+  const cfg = getTelegramConfig();
+  if (!cfg.bot_token || !cfg.api_id || !cfg.api_hash) {
+    showToast('Please configure Telegram credentials first!', 'error');
+    openTgModal();
+    return;
+  }
+
+  const targetChat = prompt('Enter Telegram Channel/Chat ID (@username or -100...):', cfg.default_chat || '');
+  if (!targetChat) return;
+
+  try {
+    showToast('Starting Telegram upload...', 'info');
+    const res = await fetch(`/api/telegram/upload/${taskId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bot_token: cfg.bot_token,
+        api_id: cfg.api_id,
+        api_hash: cfg.api_hash,
+        chat_id: targetChat.trim()
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast('Telegram upload started in background!', 'success');
+      fetchQueue();
+    } else {
+      showToast(data.detail || 'Upload failed to start.', 'error');
+    }
+  } catch (e) {
+    showToast('Failed to connect to server.', 'error');
+  }
+}
+
 async function cleanDiskStorage() {
-  if (!confirm("Are you sure you want to clean disk storage? All downloaded video files will be permanently deleted to free space.")) {
+  if (!confirm("Are you sure you want to clean your disk storage? Your downloaded video files will be permanently deleted to free space.")) {
     return;
   }
   try {
-    showToast('Cleaning server disk storage...', 'info');
-    const res = await fetch('/api/storage/clean', { method: 'POST' });
+    showToast('Cleaning your downloaded files...', 'info');
+    const uid = getUserId();
+    const res = await fetch(`/api/storage/clean?user_id=${encodeURIComponent(uid)}`, { method: 'POST' });
     const data = await res.json();
     if (res.ok && data.success) {
       showToast(`Cleaned! Freed ${data.freed_space} (${data.deleted_files} files deleted)`, 'success');

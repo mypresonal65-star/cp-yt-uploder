@@ -29,6 +29,11 @@ logger = logging.getLogger("media_downloader")
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 STATIC_DIR = BASE_DIR / "static"
+if not (STATIC_DIR / "index.html").exists():
+    if (BASE_DIR / "website" / "static" / "index.html").exists():
+        STATIC_DIR = BASE_DIR / "website" / "static"
+    elif (BASE_DIR.parent / "website" / "static" / "index.html").exists():
+        STATIC_DIR = BASE_DIR.parent / "website" / "static"
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -85,18 +90,23 @@ async def auto_clean_downloads_loop():
                     task = file_to_task.get(fname)
 
                     # SAFETY CHECK: Never delete if currently uploading
-                    if task and (task.get("status") == "uploading" or task.get("youtube_status") == "uploading"):
+                    if task and (
+                        task.get("status") == "uploading" or 
+                        task.get("youtube_status") == "uploading" or 
+                        task.get("telegram_status") == "uploading"
+                    ):
                         continue
 
                     should_delete = False
                     reason = ""
 
-                    # Case 1: Uploaded to YouTube -> Wait 1 hour after upload completion
-                    if task and task.get("uploaded_at"):
-                        time_since_upload = now - task["uploaded_at"]
+                    # Case 1: Uploaded to YouTube or Telegram -> Wait 1 hour after latest upload completion
+                    upload_times = [t for t in [task.get("uploaded_at"), task.get("uploaded_to_tg_at")] if t] if task else []
+                    if upload_times:
+                        time_since_upload = now - max(upload_times)
                         if time_since_upload >= ONE_HOUR:
                             should_delete = True
-                            reason = "1 hr after YouTube upload"
+                            reason = "1 hr after upload"
                     # Case 2: General download older than 1 hour
                     else:
                         age = now - item.stat().st_mtime
@@ -189,6 +199,24 @@ except Exception as e:
     YOUTUBE_UPLOADER_AVAILABLE = False
 
 
+# Telegram Uploader integration (Pyrofork MTProto up to 2GB)
+TG_IMPORT_ERROR = None
+try:
+    from telegram_uploader import (
+        upload_video_to_telegram,
+        validate_telegram_credentials,
+        PYROGRAM_AVAILABLE as TELEGRAM_UPLOADER_AVAILABLE,
+        PYROGRAM_IMPORT_ERROR
+    )
+    if not TELEGRAM_UPLOADER_AVAILABLE:
+        TG_IMPORT_ERROR = PYROGRAM_IMPORT_ERROR or "Pyrofork/Pyrogram library missing"
+except Exception as e:
+    logger.warning(f"Telegram uploader module not available: {e}")
+    TELEGRAM_UPLOADER_AVAILABLE = False
+    TG_IMPORT_ERROR = str(e)
+
+
+
 # --- Models ---
 class SingleDownloadRequest(BaseModel):
     url: str
@@ -197,6 +225,11 @@ class SingleDownloadRequest(BaseModel):
     upload_to_youtube: bool = False
     privacy_status: str = "unlisted"  # 'unlisted', 'private', 'public'
     user_id: Optional[str] = None
+    upload_to_telegram: bool = False
+    tg_bot_token: Optional[str] = None
+    tg_api_id: Optional[str] = None
+    tg_api_hash: Optional[str] = None
+    tg_chat_id: Optional[str] = None
 
 
 class BatchItemRequest(BaseModel):
@@ -206,6 +239,11 @@ class BatchItemRequest(BaseModel):
     upload_to_youtube: bool = False
     privacy_status: Optional[str] = "unlisted"
     user_id: Optional[str] = None
+    upload_to_telegram: bool = False
+    tg_bot_token: Optional[str] = None
+    tg_api_id: Optional[str] = None
+    tg_api_hash: Optional[str] = None
+    tg_chat_id: Optional[str] = None
 
 
 class BatchDownloadRequest(BaseModel):
@@ -215,6 +253,18 @@ class BatchDownloadRequest(BaseModel):
     upload_to_youtube: bool = False
     default_privacy: str = "unlisted"
     user_id: Optional[str] = None
+    upload_to_telegram: bool = False
+    tg_bot_token: Optional[str] = None
+    tg_api_id: Optional[str] = None
+    tg_api_hash: Optional[str] = None
+    tg_chat_id: Optional[str] = None
+
+
+class TelegramManualUploadRequest(BaseModel):
+    bot_token: Optional[str] = None
+    api_id: Optional[str] = None
+    api_hash: Optional[str] = None
+    chat_id: Optional[str] = None
 
 
 
@@ -649,6 +699,58 @@ def sync_download_worker(task_id: str):
                 else:
                     task["youtube_status"] = "YouTube uploader module not configured."
 
+            # Auto-upload to Telegram if enabled
+            if task.get("upload_to_telegram") and not task.get("cancelled"):
+                task["status"] = "uploading"
+                task["speed_str"] = "Uploading to Telegram..."
+                task["progress"] = 0.0
+                task["telegram_status"] = "uploading"
+                logger.info(f"Task {task_id}: Starting auto-upload to Telegram...")
+
+                def tg_progress(pct, spd_str):
+                    task["progress"] = pct
+                    task["speed_str"] = f"TG: {pct}% ({spd_str})"
+
+                tg_title = task.get("display_title") or friendly_name
+                bot_token = task.get("tg_bot_token") or os.environ.get("TG_BOT_TOKEN")
+                api_id = task.get("tg_api_id") or os.environ.get("TG_API_ID")
+                api_hash = task.get("tg_api_hash") or os.environ.get("TG_API_HASH")
+                chat_id = task.get("tg_chat_id") or os.environ.get("TG_CHAT_ID")
+
+                if TELEGRAM_UPLOADER_AVAILABLE and bot_token and api_id and api_hash and chat_id:
+                    try:
+                        caption_text = f"🎬 **{tg_title}**\n\n🔗 Source: {original_url}"
+                        tg_res = asyncio.run(upload_video_to_telegram(
+                            file_path=str(final_file),
+                            caption=caption_text,
+                            bot_token=bot_token,
+                            api_id=api_id,
+                            api_hash=api_hash,
+                            chat_id=chat_id,
+                            progress_callback=tg_progress
+                        ))
+                        if tg_res.get("success"):
+                            task["telegram_url"] = tg_res.get("url")
+                            task["telegram_message_id"] = tg_res.get("message_id")
+                            task["telegram_status"] = "uploaded"
+                            task["uploaded_to_tg_at"] = time.time()
+                            logger.info(f"Task {task_id}: Telegram upload succeeded -> {tg_res.get('url') or tg_res.get('message_id')}")
+                        else:
+                            task["telegram_status"] = f"Upload failed: {tg_res.get('error')}"
+                            logger.warning(f"Task {task_id}: Telegram upload failed -> {tg_res.get('error')}")
+                    except Exception as e:
+                        task["telegram_status"] = f"Upload error: {str(e)}"
+                        logger.error(f"Task {task_id}: Telegram upload exception: {e}")
+                else:
+                    missing = []
+                    if not TELEGRAM_UPLOADER_AVAILABLE:
+                        missing.append(f"Server library missing ({TG_IMPORT_ERROR or 'run: pip install pyrofork tgcrypto'})")
+                    if not bot_token: missing.append("Bot Token")
+                    if not api_id: missing.append("API ID")
+                    if not api_hash: missing.append("API Hash")
+                    if not chat_id: missing.append("Chat ID")
+                    task["telegram_status"] = f"Missing TG configs: {', '.join(missing)}"
+
             task["status"] = "completed"
             task["progress"] = 100.0
             task["completed_at"] = time.time()
@@ -697,7 +799,12 @@ def create_task_entry(
     resolution: str,
     upload_to_youtube: bool = False,
     privacy_status: str = "unlisted",
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    upload_to_telegram: bool = False,
+    tg_bot_token: Optional[str] = None,
+    tg_api_id: Optional[str] = None,
+    tg_api_hash: Optional[str] = None,
+    tg_chat_id: Optional[str] = None
 ) -> str:
     task_id = str(uuid.uuid4())[:8]
     is_cp = any(k in url.lower() for k in ["classplusapp", "testbook.com", "akamai", "media-cdn"])
@@ -714,6 +821,15 @@ def create_task_entry(
         "user_id": user_id,
         "youtube_url": None,
         "youtube_status": None,
+        "upload_to_telegram": upload_to_telegram,
+        "tg_bot_token": tg_bot_token,
+        "tg_api_id": tg_api_id,
+        "tg_api_hash": tg_api_hash,
+        "tg_chat_id": tg_chat_id,
+        "telegram_url": None,
+        "telegram_status": None,
+        "telegram_message_id": None,
+        "uploaded_to_tg_at": None,
         "status": "queued",
         "progress": 0.0,
         "speed_str": "--",
@@ -773,6 +889,71 @@ def background_yt_upload(task_id: str):
             task["status"] = "completed"
             task["progress"] = 100.0
             logger.warning(f"Task {task_id}: YouTube upload failed -> {yt_res.get('error')}")
+
+
+def background_tg_upload(task_id: str):
+    task = tasks_db.get(task_id)
+    if not task:
+        return
+    file_path = task.get("file_path")
+    if not file_path or not os.path.exists(file_path):
+        task["telegram_status"] = "Error: File missing from disk"
+        return
+    task["status"] = "uploading"
+    task["speed_str"] = "Uploading to Telegram..."
+    task["progress"] = 0.0
+    task["telegram_status"] = "uploading"
+
+    def tg_progress(pct, spd_str):
+        task["progress"] = pct
+        task["speed_str"] = f"TG: {pct}% ({spd_str})"
+
+    tg_title = task.get("display_title") or task.get("friendly_filename") or "Uploaded Video"
+    bot_token = task.get("tg_bot_token") or os.environ.get("TG_BOT_TOKEN")
+    api_id = task.get("tg_api_id") or os.environ.get("TG_API_ID")
+    api_hash = task.get("tg_api_hash") or os.environ.get("TG_API_HASH")
+    chat_id = task.get("tg_chat_id") or os.environ.get("TG_CHAT_ID")
+
+    if TELEGRAM_UPLOADER_AVAILABLE and bot_token and api_id and api_hash and chat_id:
+        try:
+            caption_text = f"🎬 **{tg_title}**\n\n🔗 Source: {task.get('url', '')}"
+            tg_res = asyncio.run(upload_video_to_telegram(
+                file_path=file_path,
+                caption=caption_text,
+                bot_token=bot_token,
+                api_id=api_id,
+                api_hash=api_hash,
+                chat_id=chat_id,
+                progress_callback=tg_progress
+            ))
+            if tg_res.get("success"):
+                task["telegram_url"] = tg_res.get("url")
+                task["telegram_message_id"] = tg_res.get("message_id")
+                task["telegram_status"] = "uploaded"
+                task["uploaded_to_tg_at"] = time.time()
+                task["status"] = "completed"
+                task["progress"] = 100.0
+                logger.info(f"Task {task_id}: Telegram manual upload succeeded -> {tg_res.get('url') or tg_res.get('message_id')}")
+            else:
+                task["telegram_status"] = f"Upload failed: {tg_res.get('error')}"
+                task["status"] = "completed"
+                task["progress"] = 100.0
+                logger.warning(f"Task {task_id}: Telegram manual upload failed -> {tg_res.get('error')}")
+        except Exception as e:
+            task["telegram_status"] = f"Upload error: {str(e)}"
+            task["status"] = "completed"
+            task["progress"] = 100.0
+            logger.error(f"Task {task_id}: Telegram upload exception -> {e}")
+    else:
+        missing = []
+        if not TELEGRAM_UPLOADER_AVAILABLE:
+            missing.append(f"Server library missing ({TG_IMPORT_ERROR or 'run: pip install pyrofork tgcrypto'})")
+        if not bot_token: missing.append("Bot Token")
+        if not api_id: missing.append("API ID")
+        if not api_hash: missing.append("API Hash")
+        if not chat_id: missing.append("Chat ID")
+        task["telegram_status"] = f"Missing TG configs: {', '.join(missing)}"
+        task["status"] = "completed"
 
 
 @app.get("/api/youtube/status")
@@ -858,6 +1039,45 @@ async def manual_youtube_upload(task_id: str, background_tasks: BackgroundTasks)
     return {"success": True, "message": "YouTube upload started"}
 
 
+@app.post("/api/telegram/test")
+async def test_telegram_creds(payload: dict):
+    bot_token = payload.get("bot_token", "")
+    res = validate_telegram_credentials(bot_token)
+    res["pyrogram_available"] = TELEGRAM_UPLOADER_AVAILABLE
+    if not TELEGRAM_UPLOADER_AVAILABLE:
+        res["warning"] = f"Bot token is valid, but Pyrofork MTProto library is not installed: {TG_IMPORT_ERROR or 'run: pip install pyrofork tgcrypto'}"
+    return res
+
+
+@app.post("/api/telegram/upload/{task_id}")
+async def manual_telegram_upload(
+    task_id: str, 
+    payload: TelegramManualUploadRequest, 
+    background_tasks: BackgroundTasks
+):
+    if not TELEGRAM_UPLOADER_AVAILABLE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Telegram uploader disabled: Pyrofork library is missing on server. Run: !pip install pyrofork tgcrypto in your notebook/server. ({TG_IMPORT_ERROR or ''})"
+        )
+
+    task = tasks_db.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    file_path = task.get("file_path")
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Downloaded video file not found on disk")
+
+    if payload.bot_token: task["tg_bot_token"] = payload.bot_token
+    if payload.api_id: task["tg_api_id"] = payload.api_id
+    if payload.api_hash: task["tg_api_hash"] = payload.api_hash
+    if payload.chat_id: task["tg_chat_id"] = payload.chat_id
+
+    background_tasks.add_task(background_tg_upload, task_id)
+    return {"success": True, "message": "Telegram upload started in background"}
+
+
 @app.post("/api/download/single")
 async def download_single(req: SingleDownloadRequest):
     url = req.url.strip()
@@ -870,7 +1090,12 @@ async def download_single(req: SingleDownloadRequest):
         resolution=req.resolution,
         upload_to_youtube=req.upload_to_youtube,
         privacy_status=req.privacy_status,
-        user_id=req.user_id
+        user_id=req.user_id,
+        upload_to_telegram=req.upload_to_telegram,
+        tg_bot_token=req.tg_bot_token,
+        tg_api_id=req.tg_api_id,
+        tg_api_hash=req.tg_api_hash,
+        tg_chat_id=req.tg_chat_id
     )
     await download_queue.put(task_id)
     return {"success": True, "task": tasks_db[task_id]}
@@ -889,7 +1114,24 @@ async def download_batch(req: BatchDownloadRequest):
                 yt_up = item.upload_to_youtube or req.upload_to_youtube
                 priv = item.privacy_status or req.default_privacy
                 uid = item.user_id or req.user_id
-                tid = create_task_entry(u, item.custom_name, res, yt_up, priv, user_id=uid)
+                tg_up = item.upload_to_telegram or req.upload_to_telegram
+                b_tok = item.tg_bot_token or req.tg_bot_token
+                a_id = item.tg_api_id or req.tg_api_id
+                a_hash = item.tg_api_hash or req.tg_api_hash
+                c_id = item.tg_chat_id or req.tg_chat_id
+                tid = create_task_entry(
+                    url=u, 
+                    custom_name=item.custom_name, 
+                    resolution=res, 
+                    upload_to_youtube=yt_up, 
+                    privacy_status=priv, 
+                    user_id=uid,
+                    upload_to_telegram=tg_up,
+                    tg_bot_token=b_tok,
+                    tg_api_id=a_id,
+                    tg_api_hash=a_hash,
+                    tg_chat_id=c_id
+                )
                 await download_queue.put(tid)
                 added_tasks.append(tasks_db[tid])
 
@@ -927,7 +1169,12 @@ async def download_batch(req: BatchDownloadRequest):
                     resolution=req.default_resolution,
                     upload_to_youtube=req.upload_to_youtube,
                     privacy_status=req.default_privacy,
-                    user_id=req.user_id
+                    user_id=req.user_id,
+                    upload_to_telegram=req.upload_to_telegram,
+                    tg_bot_token=req.tg_bot_token,
+                    tg_api_id=req.tg_api_id,
+                    tg_api_hash=req.tg_api_hash,
+                    tg_chat_id=req.tg_chat_id
                 )
                 await download_queue.put(tid)
                 added_tasks.append(tasks_db[tid])
@@ -940,9 +1187,13 @@ async def download_batch(req: BatchDownloadRequest):
 
 
 @app.get("/api/queue")
-async def get_queue():
+async def get_queue(user_id: Optional[str] = Query(None)):
+    if user_id:
+        user_tasks = [t for t in tasks_db.values() if t.get("user_id") == user_id]
+    else:
+        user_tasks = list(tasks_db.values())
     # Return tasks sorted by creation time (most recent first)
-    sorted_tasks = sorted(tasks_db.values(), key=lambda t: t.get("created_at", 0), reverse=True)
+    sorted_tasks = sorted(user_tasks, key=lambda t: t.get("created_at", 0), reverse=True)
     return {"tasks": sorted_tasks}
 
 
@@ -955,10 +1206,13 @@ async def get_task_status(task_id: str):
 
 
 @app.delete("/api/queue/{task_id}")
-async def cancel_or_delete_task(task_id: str):
+async def cancel_or_delete_task(task_id: str, user_id: Optional[str] = Query(None)):
     task = tasks_db.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    if user_id and task.get("user_id") and task.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete this task")
 
     task["cancelled"] = True
     # If file exists, clean up
@@ -974,10 +1228,10 @@ async def cancel_or_delete_task(task_id: str):
 
 
 @app.post("/api/queue/clear")
-async def clear_finished_tasks():
+async def clear_finished_tasks(user_id: Optional[str] = Query(None)):
     to_delete = [
         tid for tid, t in tasks_db.items()
-        if t.get("status") in ("completed", "failed")
+        if t.get("status") in ("completed", "failed") and (not user_id or t.get("user_id") == user_id)
     ]
     for tid in to_delete:
         tasks_db.pop(tid, None)
@@ -1003,26 +1257,26 @@ async def download_completed_file(task_id: str):
 
 
 @app.post("/api/storage/clean")
-async def clean_storage_manually():
-    """Manually deletes all downloaded video files to free up disk space immediately."""
+async def clean_storage_manually(user_id: Optional[str] = Query(None)):
+    """Manually deletes downloaded video files for the requesting user (or all if user_id is omitted)."""
     count = 0
     freed_bytes = 0
-    for item in DOWNLOADS_DIR.glob("*"):
-        if item.name == ".gitkeep":
-            continue
-        if item.is_file():
+    target_tasks = [t for t in tasks_db.values() if not user_id or t.get("user_id") == user_id]
+
+    for t in target_tasks:
+        file_path = t.get("file_path")
+        if file_path and os.path.exists(file_path):
             try:
-                freed_bytes += item.stat().st_size
-                fname = item.name
-                item.unlink()
+                fsize = os.path.getsize(file_path)
+                os.remove(file_path)
+                freed_bytes += fsize
                 count += 1
-                for t in tasks_db.values():
-                    if t.get("resolved_filename") == fname or (t.get("file_path") and fname in str(t.get("file_path", ""))):
-                        t["file_path"] = None
-                        t["download_url"] = None
-                        t["filesize_str"] = "Cleaned"
+                t["file_path"] = None
+                t["download_url"] = None
+                t["filesize_str"] = "Cleaned"
             except Exception as e:
-                logger.warning(f"Could not delete {item.name}: {e}")
+                logger.warning(f"Could not delete {file_path}: {e}")
+
     return {
         "success": True,
         "deleted_files": count,
@@ -1031,14 +1285,24 @@ async def clean_storage_manually():
 
 
 @app.get("/api/stats")
-async def get_system_stats():
-    total = len(tasks_db)
-    active = sum(1 for t in tasks_db.values() if t.get("status") in ("queued", "downloading", "processing"))
-    completed = sum(1 for t in tasks_db.values() if t.get("status") == "completed")
-    failed = sum(1 for t in tasks_db.values() if t.get("status") == "failed")
+async def get_system_stats(user_id: Optional[str] = Query(None)):
+    target_tasks = [t for t in tasks_db.values() if not user_id or t.get("user_id") == user_id]
+    total = len(target_tasks)
+    active = sum(1 for t in target_tasks if t.get("status") in ("queued", "downloading", "processing", "uploading"))
+    completed = sum(1 for t in target_tasks if t.get("status") == "completed")
+    failed = sum(1 for t in target_tasks if t.get("status") == "failed")
 
-    # Compute downloads folder size
-    total_size = sum(f.stat().st_size for f in DOWNLOADS_DIR.glob("*") if f.is_file())
+    # Compute target user's files size
+    total_size = 0
+    for t in target_tasks:
+        fp = t.get("file_path")
+        if fp and os.path.exists(fp):
+            try:
+                total_size += os.path.getsize(fp)
+            except Exception:
+                pass
+
+    user_queue_len = sum(1 for t in target_tasks if t.get("status") == "queued")
 
     return {
         "total_tasks": total,
@@ -1046,7 +1310,7 @@ async def get_system_stats():
         "completed_tasks": completed,
         "failed_tasks": failed,
         "disk_usage": format_bytes(total_size),
-        "queue_length": download_queue.qsize()
+        "queue_length": user_queue_len
     }
 
 

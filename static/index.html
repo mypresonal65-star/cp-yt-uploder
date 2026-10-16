@@ -61,6 +61,12 @@
           </svg>
           <span id="headerYtStatusText">Link YouTube</span>
         </button>
+        <button class="btn-header-tg" id="btnOpenTgModal" onclick="openTgModal()" title="Link Telegram Bot & Channel">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+          </svg>
+          <span id="headerTgStatusText">Link Telegram</span>
+        </button>
       </div>
     </header>
 
@@ -202,6 +208,32 @@
             </div>
           </div>
 
+          <!-- Telegram Auto-Upload Option -->
+          <div class="telegram-upload-box">
+            <div class="tg-header">
+              <label class="tg-toggle-label">
+                <input type="checkbox" id="singleTgUpload" onchange="toggleTgOptions('single')">
+                <span class="tg-checkbox-custom"></span>
+                <span class="tg-title">
+                  <svg class="tg-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                  </svg>
+                  Auto-Upload to Telegram (Up to 2GB)
+                </span>
+              </label>
+              <span class="tg-status-tag" id="tgConfigBadgeSingle" onclick="openTgModal()" style="cursor:pointer;" title="Configure Telegram credentials">Config Needed</span>
+            </div>
+            
+            <div class="tg-options hidden" id="singleTgOptions">
+              <div class="tg-opt-row">
+                <span class="tg-opt-label">Channel/Chat ID:</span>
+                <input type="text" id="singleTgChatId" class="tg-chat-input" placeholder="@mychannel or -1001234567890">
+                <button type="button" class="btn-tg-edit" onclick="openTgModal()" title="Edit Bot Token & API Credentials">⚙ Settings</button>
+              </div>
+              <p class="tg-hint">Video will be uploaded directly to this chat/channel via your Telegram bot (supports up to 2GB MTProto streaming).</p>
+            </div>
+          </div>
+
           <button type="submit" class="btn-submit" id="btnSingleSubmit">
             <span class="btn-text">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -304,6 +336,32 @@
                 </select>
               </div>
               <p class="yt-hint">All videos in this batch will automatically upload to your channel as they complete.</p>
+            </div>
+          </div>
+
+          <!-- Telegram Auto-Upload Option for Batch -->
+          <div class="telegram-upload-box">
+            <div class="tg-header">
+              <label class="tg-toggle-label">
+                <input type="checkbox" id="batchTgUpload" onchange="toggleTgOptions('batch')">
+                <span class="tg-checkbox-custom"></span>
+                <span class="tg-title">
+                  <svg class="tg-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                  </svg>
+                  Auto-Upload All to Telegram (Up to 2GB)
+                </span>
+              </label>
+              <span class="tg-status-tag" id="tgConfigBadgeBatch" onclick="openTgModal()" style="cursor:pointer;" title="Configure Telegram credentials">Config Needed</span>
+            </div>
+            
+            <div class="tg-options hidden" id="batchTgOptions">
+              <div class="tg-opt-row">
+                <span class="tg-opt-label">Batch Channel/Chat ID:</span>
+                <input type="text" id="batchTgChatId" class="tg-chat-input" placeholder="@mychannel or -1001234567890">
+                <button type="button" class="btn-tg-edit" onclick="openTgModal()" title="Edit Bot Token & API Credentials">⚙ Settings</button>
+              </div>
+              <p class="tg-hint">All downloaded batch videos will be sequentially uploaded to this Telegram channel/chat.</p>
             </div>
           </div>
 
@@ -437,6 +495,78 @@
             Sign in with Google
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Telegram Settings Modal -->
+  <div class="modal-overlay hidden" id="tgModalOverlay" onclick="closeTgModal(event)">
+    <div class="modal-card modal-tg" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="tg-modal-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#0088cc">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+            </svg>
+          </div>
+          <div>
+            <h3>Telegram Uploader Setup</h3>
+            <p class="modal-subtitle">Upload up to 2GB videos using MTProto (Bot Token + API ID/Hash)</p>
+          </div>
+        </div>
+        <button class="btn-modal-close" onclick="closeTgModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="tg-connection-status" id="modalTgStatusCard">
+          <div class="status-indicator-dot" id="modalTgDot"></div>
+          <span id="modalTgStatusMsg">No Bot Token saved yet</span>
+        </div>
+
+        <form onsubmit="saveTelegramSettings(event)">
+          <div class="modal-form-group">
+            <label class="modal-label" for="tgModalBotToken">
+              <span>Bot Token</span>
+              <a href="https://t.me/BotFather" target="_blank" class="modal-link-hint">Get from @BotFather</a>
+            </label>
+            <input type="password" id="tgModalBotToken" class="modal-input" placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" autocomplete="off" required>
+          </div>
+
+          <div class="modal-grid-2">
+            <div class="modal-form-group">
+              <label class="modal-label" for="tgModalApiId">
+                <span>API ID</span>
+                <a href="https://my.telegram.org" target="_blank" class="modal-link-hint">my.telegram.org</a>
+              </label>
+              <input type="text" id="tgModalApiId" class="modal-input" placeholder="e.g. 21345678" autocomplete="off" required>
+            </div>
+            <div class="modal-form-group">
+              <label class="modal-label" for="tgModalApiHash">
+                <span>API Hash</span>
+              </label>
+              <input type="password" id="tgModalApiHash" class="modal-input" placeholder="e.g. 9f8e7d6c5b4a3..." autocomplete="off" required>
+            </div>
+          </div>
+
+          <div class="modal-form-group">
+            <label class="modal-label" for="tgModalDefaultChat">
+              <span>Default Channel / Chat ID</span>
+              <span class="modal-hint-inline">(@channelusername or -100...)</span>
+            </label>
+            <input type="text" id="tgModalDefaultChat" class="modal-input" placeholder="e.g. @MyChannel or -1001234567890" autocomplete="off">
+            <span class="field-info">💡 Tip: Make sure your bot is added as an <strong>Administrator</strong> with "Post Messages" permission in your channel!</span>
+          </div>
+
+          <div class="modal-actions-row">
+            <button type="button" class="btn-secondary" onclick="closeTgModal()">Cancel</button>
+            <button type="submit" class="btn-tg-save" id="btnSaveTg">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              Test & Save Credentials
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
